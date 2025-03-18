@@ -1,19 +1,30 @@
-// Import necessary modules
-//import { config } from "https://deno.land/std@0.192.0/dotenv/mod.ts";
 import { ChatGroq } from "@langchain/groq";
 import { HumanMessage, AIMessage } from "langchain-core";
+import { stringify as json2toml } from "jsr:@std/toml";
 
-// Load environment variables
-const apiKey = Deno.env.get("GROQ_API_KEY");
+const apiKey = Deno.env.get("GROQ_API_KEY"), discord_webhook_url = Deno.env.get("DISCORD_WEBHOOK");
+const headers = {
+  "Content-Type": "application/json",
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+  "Access-Control-Allow-Headers": "Content-Type",
+}
 
+// Check if API key is set
 if (!apiKey) {
   console.error("GROQ_API_KEY is not set in the environment variables.");
   Deno.exit(1);
 }
 
+// Check if Discord webhook URL is set
+if (!discord_webhook_url) {
+  console.error("DISCORD_WEBHOOK is not set in the environment variables.");
+  Deno.exit(1);
+}
+
 // Initialize the LLM
 const llm = new ChatGroq({
-  model: "llama-3.1-8b-instant",
+  model: "llama-3.2-11b-vision-preview",
   apiKey: apiKey,
   modelKwargs: {
     response_format: {
@@ -22,8 +33,19 @@ const llm = new ChatGroq({
   },
 });
 
+interface Message {
+  role: string;
+  content: string;
+  information?: any;
+}
+
+interface RequestBody {
+  msgs: Message[];
+}
+
+
 // Define the system message
-const systemMessage = {
+const systemMessage: Message = {
   role: "system",
   content: `
 You are Divya, a professional assistant for ByteVerse Agency. Your task is to help gather information from potential clients about their project requirements.
@@ -57,6 +79,7 @@ IMPORTANT GUIDELINES:
 
 // Function to get chatbot response from Groq's API
 async function getChatbotResponse(messages: Array<{ role: string; content: string }>): Promise<any> {
+  console.log("Invokation");
   const response = await llm.invoke(
     messages,
     {
@@ -68,9 +91,27 @@ async function getChatbotResponse(messages: Array<{ role: string; content: strin
   return response ? JSON.parse(response.content) : null;
 }
 
+async function sendToDiscord(info: any) {
+  const body = JSON.stringify({
+    username: "Divya",
+    content: json2toml(info),
+  });
+
+  fetch(discord_webhook_url, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: body,
+  })
+}
+
 // Main function to handle the chat flow
-async function main() {
-  const messages = [systemMessage];
+/*
+ * Prototype Use case
+async function main(messages_?: Array<{ role: string; content: string }>) {
+  var messages = [systemMessage];
+  messages = messages.concat(messages_);
   var info = {};
   let chatActive = true;
 
@@ -96,9 +137,85 @@ async function main() {
     }
   }
   console.log(info);
+  sendToDiscord(info);
+  return info;
 }
+*/
 
-if (import.meta.main) {
-  main();
-}
-
+Deno.serve(
+  {
+    port: 8000,
+  },
+  async (req?) => {
+    console.log("New request");
+    if (req.method === "POST") {
+      try {
+        var { msgs }: RequestBody = await req.json(); //declare type of array 
+      } catch (error) {
+        return new Response(error.message, { status: 400 });
+      }
+      // If msg.lenght -1 index has "end_chat" key set to true, return info only
+      const info = msgs[msgs.length - 1].info;
+      if (info.end_chat) {
+        // Send the info to Discord
+        sendToDiscord(info);
+        return new Response(
+          JSON.stringify(info),
+          { 
+            headers: {
+              "Content-Type": "application/json" 
+          } 
+        });
+      }
+      const { message: dt, information } = await getChatbotResponse([
+            systemMessage,
+            ...msgs
+      ])
+      const response : Message = {
+        role: "assistant",
+        content: dt,
+        info: information
+      }
+      return new Response(
+        JSON.stringify(response),
+        { 
+          headers: {
+            "Content-Type": "application/json" 
+        } 
+      });
+    } else if (req.method === "GET") {
+      return new Response(
+        JSON.stringify({
+          message: "Hello from Deno!"
+        }),
+        { 
+          headers: {
+            "Content-Type": "application/json" 
+        } 
+      });
+    } else if ( req.method === "OPTIONS" ) {
+      return new Response(
+        JSON.stringify({
+          message: "Hello from Deno!",
+          headers: headers,
+          status: 200
+        }),
+        { 
+          headers: headers,
+          status: 200
+        }
+        );
+    } else {
+      return new Response(
+        JSON.stringify({
+          message: "Hello from Deno!"
+        }),
+        { 
+          headers: {
+            "Content-Type": "application/json" 
+        },
+        status: 405
+      });
+    }
+  }
+)
