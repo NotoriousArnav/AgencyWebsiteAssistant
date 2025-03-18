@@ -1,26 +1,31 @@
-import os
-import json
-import uuid
-from dotenv import load_dotenv
-from langchain_groq import ChatGroq
-from langgraph.checkpoint.memory import MemorySaver
-from langchain_core.messages import HumanMessage, AIMessage
-from langgraph.graph import START, MessagesState, StateGraph
-from langchain.prompts import ChatPromptTemplate, MessagesPlaceholder
+// Import necessary modules
+//import { config } from "https://deno.land/std@0.192.0/dotenv/mod.ts";
+import { ChatGroq } from "@langchain/groq";
+import { HumanMessage, AIMessage } from "langchain-core";
 
-load_dotenv()
+// Load environment variables
+const apiKey = Deno.env.get("GROQ_API_KEY");
 
-llm = ChatGroq(
-    model="llama-3.1-8b-instant",
-    api_key=os.getenv("GROQ_API_KEY", None),
-    model_kwargs={
-        "response_format": {
-                "type": "json_object",
-            }
+if (!apiKey) {
+  console.error("GROQ_API_KEY is not set in the environment variables.");
+  Deno.exit(1);
+}
+
+// Initialize the LLM
+const llm = new ChatGroq({
+  model: "llama-3.1-8b-instant",
+  apiKey: apiKey,
+  modelKwargs: {
+    response_format: {
+      type: "json_object",
     },
-)
+  },
+});
 
-system_message = ("system", f"""
+// Define the system message
+const systemMessage = {
+  role: "system",
+  content: `
 You are Divya, a professional assistant for ByteVerse Agency. Your task is to help gather information from potential clients about their project requirements.
 Be friendly but professional. Follow these steps:
 
@@ -38,6 +43,7 @@ IMPORTANT GUIDELINES:
 - Do not forget to update the "end_chat" and the "information" keys in Memory.
 - The data in "information" key should be very elaborate and should contain the following keys: "name", "email", "project_requirements", "budget_range", "timeline" and etc. Make sure you clearly store the currency and amount in the "budget_range" key.
 - Do not Rush the conversation, and when you think the Conversation should end, Once ask for confirmation to make sure that the requirements are correct
+- Do not end the conversation untill the user confirms the requirements. If the user keeps deviating, just end the conversation.
 - The user can only see the contents of the "message" key so when confirmation is required also include the same details in a structed way in the "message" key.
 - Always stay focused on collecting client information. Do not discuss other topics.
 - If the conversation deviates, politely bring it back to the project requirements discussion.
@@ -46,61 +52,53 @@ IMPORTANT GUIDELINES:
 - Be concise and professional at all times.
 - Don't ask more than one question at a time.
 - If the user provides multiple pieces of information in one message, acknowledge each piece and continue with the next appropriate question.
-""")
+`
+};
 
-# Define a new graph
-workflow = StateGraph(state_schema=MessagesState)
-
-def convert_ai_message_to_json(ai_message:AIMessage) -> dict:
-    return json.loads(ai_message.content)
-
-def call_model(state: MessagesState) -> dict:
-    response = llm.invoke(state["messages"])
-    #response = convert_ai_message_to_json(response)
-    return {
-                "messages": response
-        }
-
-workflow.add_edge(
-    START,
-    "model"
-)
-
-workflow.add_node(
-    "model",
-    call_model
-)
-
-memory = MemorySaver()
-
-app = workflow.compile(
-    checkpointer=memory
-)
-
-config = {
-    "configurable": {
-            "thread_id": uuid.uuid4()
-        }
+// Function to get chatbot response from Groq's API
+async function getChatbotResponse(messages: Array<{ role: string; content: string }>): Promise<any> {
+  const response = await llm.invoke(
+    messages,
+    {
+      response_format: {
+        type: "json_object",
+    }
+    }
+  );
+  return response ? JSON.parse(response.content) : null;
 }
 
-info = {}
-while True:
-    #Keep Asking untill break on purpose
-    response = convert_ai_message_to_json(
-            list(
-                app.stream(
-                    {
-                        "messages": [
-                            system_message,
-                            HumanMessage(content=input("User: "))
-                        ]
-                    },
-                    config, 
-                    stream_mode="values"
-                )
-            )[-1].get('messages')[-1]
-        )
-    print("Bot: ", response['message'])
-    info = response['information']
-    if info.get('end_chat', False):
-        break
+// Main function to handle the chat flow
+async function main() {
+  const messages = [systemMessage];
+  var info = {};
+  let chatActive = true;
+
+  while (chatActive) {
+    const userInput = prompt("User: ");
+    if (!userInput) break;
+
+    messages.push({ role: "user", content: userInput });
+
+    const response = await getChatbotResponse(messages);
+    if (response) {
+      console.log("Bot:", response.message);
+      messages.push({ role: "assistant", content: response.message });
+
+      if (response.end_chat) {
+        chatActive = false;
+      }
+    } else {
+      console.log("Bot: I'm sorry, I didn't understand that.");
+    }
+    if (response.information) {
+      info = response.information;
+    }
+  }
+  console.log(info);
+}
+
+if (import.meta.main) {
+  main();
+}
+
