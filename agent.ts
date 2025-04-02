@@ -106,42 +106,6 @@ async function sendToDiscord(info: any) {
   })
 }
 
-// Main function to handle the chat flow
-/*
- * Prototype Use case
-async function main(messages_?: Array<{ role: string; content: string }>) {
-  var messages = [systemMessage];
-  messages = messages.concat(messages_);
-  var info = {};
-  let chatActive = true;
-
-  while (chatActive) {
-    const userInput = prompt("User: ");
-    if (!userInput) break;
-
-    messages.push({ role: "user", content: userInput });
-
-    const response = await getChatbotResponse(messages);
-    if (response) {
-      console.log("Bot:", response.message);
-      messages.push({ role: "assistant", content: response.message });
-
-      if (response.end_chat) {
-        chatActive = false;
-      }
-    } else {
-      console.log("Bot: I'm sorry, I didn't understand that.");
-    }
-    if (response.information) {
-      info = response.information;
-    }
-  }
-  console.log(info);
-  sendToDiscord(info);
-  return info;
-}
-*/
-
 Deno.serve(
   {
     port: 8000,
